@@ -1,0 +1,6 @@
+# data.js é gerado no workflow (le as planilhas na hora) — nunca commitar
+data.js
+_site/
+*.output
+# NUNCA commitar o token da Meta
+.env
