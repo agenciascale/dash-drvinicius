@@ -29,6 +29,13 @@
     <button data-tab="report" role="tab">📄 Relatório</button>
   </div>
 
+  <div class="camptabs" role="tablist" aria-label="Campanha">
+    <button data-camp-group="all" role="tab">Todas</button>
+    <button data-camp-group="quiz" role="tab">🧩 Quiz <small>E2 · Cap Leads</small></button>
+    <button data-camp-group="msg" role="tab">💬 Mensagem <small>E2 · Cap ENGJ</small></button>
+    <button data-camp-group="seg" role="tab">👥 Seguidores <small>E1 · Dist</small></button>
+  </div>
+
   <div class="controls">
     <div class="grp">
       <label>Período</label>
@@ -49,16 +56,6 @@
     <div class="grp">
       <button class="btn on" id="cmp" aria-pressed="true">Comparar c/ período anterior</button>
       <span class="rangelbl" id="cmpNote"></span>
-    </div>
-  </div>
-
-  <div class="controls camprow">
-    <div class="grp">
-      <label>Campanha</label>
-      <div class="dd" id="campWrap">
-        <button class="btn" id="campBtn" aria-haspopup="true" aria-expanded="false">Todas as campanhas ▾</button>
-        <div class="dd-panel" id="campPanel" hidden></div>
-      </div>
     </div>
   </div>
 

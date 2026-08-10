@@ -51,12 +51,15 @@
 
   var STATE = {
     from: minDate, to: maxDate, preset: 'all', compare: true, tab: 'overview',
-    metric: 'spend', treeSort: { key: 'spend', dir: -1 }, expanded: {}, camps: null
+    metric: 'spend', treeSort: { key: 'spend', dir: -1 }, expanded: {}, camps: null, campGroup: 'all'
   };
   var CAMP_SPEND = {}; grain.forEach(function (g) { CAMP_SPEND[g.camp] = (CAMP_SPEND[g.camp] || 0) + g.spend; });
   var ALL_CAMPS = Object.keys(CAMP_SPEND).sort(function (a, b) { return CAMP_SPEND[b] - CAMP_SPEND[a]; });
-  function campOK(c) { return !STATE.camps || STATE.camps[c] === true; }
-  function campFilterActive() { return !!STATE.camps; }
+  // grupo de campanha (abas): quiz = Leads/LP · msg = Mensagens · seg = Topo/Seguidores
+  var GROUP_LABEL = { all: 'Todas as campanhas', quiz: 'Quiz (E2 · Cap Leads)', msg: 'Mensagem (E2 · Cap ENGJ)', seg: 'Seguidores (E1 · Dist)' };
+  function groupOf(c) { var f = funnelOf(c); return f === 'Leads/LP' ? 'quiz' : f === 'Mensagens' ? 'msg' : f === 'Topo' ? 'seg' : 'other'; }
+  function campOK(c) { if (STATE.campGroup && STATE.campGroup !== 'all' && groupOf(c) !== STATE.campGroup) return false; return !STATE.camps || STATE.camps[c] === true; }
+  function campFilterActive() { return !!(STATE.campGroup && STATE.campGroup !== 'all') || !!STATE.camps; }
   function campSelectedCount() { return STATE.camps ? Object.keys(STATE.camps).filter(function (k) { return STATE.camps[k]; }).length : ALL_CAMPS.length; }
 
   /* ---------------------------------------------------------------- objetivo da campanha */
@@ -121,6 +124,67 @@
     return o;
   }
   var HAS_FIN = finAll.length > 0;
+
+  /* ---------------------------------------------------------------- agregação por grupo de campanha */
+  function aggregateGroup(grp, from, to) {
+    var t = blank();
+    for (var i = 0; i < grain.length; i++) {
+      var g = grain[i]; if (!within(g.d, from, to)) continue; if (groupOf(g.camp) !== grp) continue;
+      t.spend += g.spend; t.impr += g.impr; t.reach += g.reach; t.clk += g.clk;
+      t.conv += g.conv; t.reply += g.reply; t.lead += g.lead; t.sched += g.sched;
+    }
+    return derive(t);
+  }
+
+  /* ---------------------------------------------------------------- leads do quiz (planilha ao vivo, gviz) */
+  var LEADS_SHEET = '1tFaH49FCD2egRPjbzKP8_KixwXyyRjhMyOONSiLpR2I';
+  var LEADS_GID = '0';
+  var LEADS = null;   // null=carregando · {error:true} · {rows:[{d,prio,pts}]}
+  function parseCSV(text) {
+    var rows = [], row = [], cur = '', inQ = false, ch;
+    for (var i = 0; i < text.length; i++) {
+      ch = text[i];
+      if (inQ) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += ch; }
+      else if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else if (ch !== '\r') cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function normPrio(s) { s = String(s || '').trim().toLowerCase(); if (s.indexOf('alta') >= 0) return 'alta'; if (s.indexOf('méd') >= 0 || s.indexOf('med') >= 0) return 'media'; if (s.indexOf('baix') >= 0) return 'baixa'; return ''; }
+  function leadDate(s) {
+    s = String(s || '').trim();
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);   // planilha pt-BR: D/M/Y
+    if (m) { return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2); }
+    return '';
+  }
+  function fetchLeads(cb) {
+    var url = 'https://docs.google.com/spreadsheets/d/' + LEADS_SHEET + '/gviz/tq?tqx=out:csv&gid=' + LEADS_GID + '&_=' + Date.now();
+    fetch(url).then(function (r) { return r.text(); }).then(function (t) {
+      var rows = parseCSV(t), out = [];
+      for (var i = 1; i < rows.length; i++) {           // pula cabeçalho
+        var r = rows[i]; if (!r || r.length < 5) continue;
+        var nome = String(r[1] || '').trim();
+        if (/^teste/i.test(nome)) continue;             // ignora linhas de teste
+        out.push({ d: leadDate(r[0]), prio: normPrio(r[3]), pts: +String(r[4] || '').replace(/[^\d]/g, '') || 0 });
+      }
+      LEADS = { rows: out };
+      cb && cb();
+    }).catch(function () { LEADS = { error: true }; cb && cb(); });
+  }
+  function leadsAgg(from, to, all) {
+    var o = { total: 0, alta: 0, media: 0, baixa: 0, sem: 0 };
+    if (!LEADS || !LEADS.rows) return o;
+    LEADS.rows.forEach(function (r) {
+      if (!all) { if (!r.d) return; if (r.d < from || r.d > to) return; }
+      o.total++;
+      if (r.prio === 'alta') o.alta++; else if (r.prio === 'media') o.media++; else if (r.prio === 'baixa') o.baixa++; else o.sem++;
+    });
+    return o;
+  }
 
   /* ---------------------------------------------------------------- régua de benchmarks (Leandro) */
   var BANDS = {
@@ -338,6 +402,34 @@
   ];
 
   /* ================================================================ VISÃO GERAL */
+  function renderQuizLeads(m, lc) {
+    var head = '<h2>🧩 Quiz — funil de leads <small style="font-weight:500;color:var(--ink-3)">leitura ao vivo da planilha' + (STATE.preset === 'all' ? ' · todas as respostas' : ' · no período') + '</small></h2>';
+    if (LEADS === null) return '<div class="panel quiz-panel">' + head + '<p class="note">⏳ Lendo a planilha de leads em tempo real…</p></div>';
+    if (LEADS.error) return '<div class="panel quiz-panel">' + head + '<p class="note">⚠️ Não consegui ler a planilha agora. Confirme que ela está com acesso <b>"qualquer pessoa com o link"</b> e recarregue.</p></div>';
+    var total = lc.total, cpl = div(m.spend, total);
+    var stages = [
+      { n: 'Investimento', big: M.money(m.spend), bg: '#8fe01e', ink: '#0c1400', cl: 'com imposto', cv: '×' + taxStr(TAX), sub: 'campanha do quiz (E2 · Cap Leads)' },
+      { n: 'Impressões', big: M.int(m.impr), bg: '#7ecb1c', ink: '#0c1400', cl: 'CPM', cv: M.money(m.cpm), sub: 'CTR (link) <b>' + M.pct1(m.ctr) + '</b>' },
+      { n: 'Cliques / visitas', big: M.int(m.clk), bg: '#5aa60f', ink: '#fff', cl: 'CPC', cv: M.money(m.cpc), sub: 'clique → lead <b>' + M.pct1(div(total, m.clk)) + '</b>' },
+      { n: 'Leads (quiz)', big: M.int(total), bg: '#356606', ink: '#fff', cl: 'Custo / lead', cv: (total ? M.money(cpl) : '—'), sub: total ? 'preencheram o formulário' : 'sem lead no período ainda' }
+    ];
+    var funnelHTML = stages.map(function (s) {
+      return '<div class="fstage"><div class="fl" style="background:' + s.bg + ';color:' + s.ink + '"><div class="fn">' + s.n + '</div><div class="fv">' + s.big + '</div></div>' +
+        '<div class="fr"><div class="cl">' + s.cl + '</div><div class="cv">' + s.cv + '</div><div class="fsub">' + s.sub + '</div></div></div>';
+    }).join('');
+    function qcard(cls, emoji, label, n, faixa) {
+      var share = total ? n / total : 0;
+      return '<div class="qcard ' + cls + '"><div class="qtop">' + emoji + ' ' + label + '</div><div class="qbig">' + int(n) + '</div><div class="qmeta">' + pct1(share) + ' dos leads · <span>' + faixa + '</span></div></div>';
+    }
+    var ranking = '<div class="qual-grid">' +
+      qcard('q-hot', '🟢', 'Qualificados', lc.alta, 'pontuação ≥ 33') +
+      qcard('q-mid', '🟡', 'Médios', lc.media, '21 – 32') +
+      qcard('q-cold', '🔵', 'Frios', lc.baixa, '< 21') +
+      '</div>';
+    var note = '<p class="note" style="margin-top:10px">Ranking pela <b>pontuação do quiz</b> (0–48). Atualiza sozinho a cada resposta nova — é só recarregar.' + (lc.sem ? ' <span style="color:var(--ink-3)">' + int(lc.sem) + ' sem classificação.</span>' : '') + '</p>';
+    return '<div class="panel quiz-panel">' + head + '<div class="funnel">' + funnelHTML + '</div>' + ranking + note + '</div>';
+  }
+
   function renderOverview() {
     var from = STATE.from, to = STATE.to, len = diffDays(from, to) + 1;
     var pTo = dayAdd(from, -1), pFrom = dayAdd(pTo, -(len - 1));
@@ -376,11 +468,15 @@
         '. Programar (LP): <b>' + int(cur.sched) + '</b> · Leads: <b>' + int(cur.lead) + '</b>.'
       : 'Sem conversa, programar ou lead no período.';
 
-    // alerta da LP / Schedule
-    var lpSpend = 0; for (var gi = 0; gi < grain.length; gi++) { var gg = grain[gi]; if (!within(gg.d, from, to)) continue; if (!campOK(gg.camp)) continue; if (funnelOf(gg.camp) === 'Leads/LP') lpSpend += gg.spend; }
-    var lpAlert = (cur.sched === 0 && lpSpend > 0)
-      ? '<div class="alertbar">⚠️ <b>LP não está convertendo</b> — ' + M.money(lpSpend) + ' investidos em campanhas de LP/Leads no período e <b>0 evento "Programar" (Schedule)</b> registrado. Verifique o pixel/evento na landing e a otimização da campanha (a conversão real hoje vem por <b>WhatsApp</b>).</div>'
+    // painel de leads do quiz (planilha ao vivo) + banner por grupo de campanha
+    var quizMedia = aggregateGroup('quiz', from, to);
+    var lc = leadsAgg(from, to, STATE.preset === 'all');
+    var showQuiz = (STATE.campGroup === 'all' || STATE.campGroup === 'quiz') && (quizMedia.spend > 0 || lc.total > 0 || LEADS === null);
+    var quizPanel = showQuiz ? renderQuizLeads(quizMedia, lc) : '';
+    var groupBanner = STATE.campGroup === 'seg'
+      ? '<div class="alertbar amber">👥 <b>Aba Seguidores (E1 · Dist)</b> — mostrando as métricas de mídia do Meta desta campanha. O funil de seguidores completo entra quando a planilha específica for integrada (placeholder pronto).</div>'
       : '';
+    var lpAlert = groupBanner + quizPanel;
 
     var finHTML = HAS_FIN ? (
       '<div class="panel"><h2>💰 Faturamento no período <span style="font-weight:500;color:var(--ink-3)">— planilha das secretárias</span></h2>' +
@@ -742,8 +838,10 @@
     document.addEventListener('click', function () { if (!p.hidden) { p.hidden = true; b.setAttribute('aria-expanded', 'false'); } });
   }
   function filterBarHTML() {
-    if (!campFilterActive()) return '';
-    return '<div class="filterbar">🔎 <b>Filtro de campanha ativo</b> — ' + campSelectedCount() + ' de ' + ALL_CAMPS.length + ' campanhas. Todos os números de mídia refletem só as campanhas selecionadas (o faturamento das secretárias é sempre o total da operação).</div>';
+    if (STATE.campGroup && STATE.campGroup !== 'all')
+      return '<div class="filterbar">🎯 <b>Campanha: ' + esc(GROUP_LABEL[STATE.campGroup]) + '</b> — os números de mídia refletem só essa campanha. O faturamento das secretárias é sempre o total da operação.</div>';
+    if (campFilterActive()) return '<div class="filterbar">🔎 <b>Filtro de campanha ativo</b> — ' + campSelectedCount() + ' de ' + ALL_CAMPS.length + ' campanhas.</div>';
+    return '';
   }
 
   /* ================================================================ shell / roteamento */
@@ -808,8 +906,21 @@
       };
     });
 
+    // abas de campanha (grupo): Todas / Quiz / Mensagem / Seguidores
+    try { var cg = localStorage.getItem('dv-campgroup'); if (['all', 'quiz', 'msg', 'seg'].indexOf(cg) >= 0) STATE.campGroup = cg; } catch (e) { }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-camp-group]'), function (b) {
+      b.setAttribute('aria-selected', b.dataset.campGroup === STATE.campGroup);
+      b.onclick = function () {
+        STATE.campGroup = b.dataset.campGroup;
+        try { localStorage.setItem('dv-campgroup', STATE.campGroup); } catch (e) { }
+        Array.prototype.forEach.call(document.querySelectorAll('[data-camp-group]'), function (x) { x.setAttribute('aria-selected', x.dataset.campGroup === STATE.campGroup); });
+        refresh();
+      };
+    });
+
     initCampSelector();
     setPeriod(minDate, maxDate, 'all');
+    fetchLeads(function () { if (STATE.tab === 'overview' && (STATE.campGroup === 'all' || STATE.campGroup === 'quiz')) refresh(); });
   }
 
   /* ---------------------------------------------------------------- tema */
