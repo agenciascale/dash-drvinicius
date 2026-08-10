@@ -478,16 +478,22 @@
       : '';
     var lpAlert = groupBanner + quizPanel;
 
+    var finEmpty = (fin.agend === 0 && fin.cirurg === 0 && fin.fatTot === 0);
+    var finTicket = div(fin.fatCon, fin.agend), finConvCir = div(fin.cirurg, fin.agend);
+    var finStages = [
+      { n: 'Consultas confirmadas', big: int(fin.agend), bg: '#8fe01e', ink: '#0c1400', cl: 'Faturamento consultas', cv: money0(fin.fatCon), sub: fin.agend ? 'ticket médio ' + money0(finTicket || 0) : 'agendamentos confirmados no período' },
+      { n: 'Cirurgias confirmadas', big: int(fin.cirurg), bg: '#5aa60f', ink: '#fff', cl: 'Faturamento cirurgias', cv: money0(fin.fatCir), sub: fin.agend ? 'consulta → cirurgia ' + pct1(finConvCir || 0) : 'nenhuma no período' },
+      { n: 'Faturamento total', big: money0(fin.fatTot), bg: '#356606', ink: '#fff', cl: 'ROAS geral (ref.)', cv: M.roas(div(fin.fatTot, cur.spend)), sub: 'consultas + cirurgias · operação inteira' }
+    ];
+    var finFunnel = '<div class="funnel" style="margin-top:6px">' + finStages.map(function (s) {
+      return '<div class="fstage"><div class="fl" style="background:' + s.bg + ';color:' + s.ink + '"><div class="fn">' + s.n + '</div><div class="fv">' + s.big + '</div></div>' +
+        '<div class="fr"><div class="cl">' + s.cl + '</div><div class="cv">' + s.cv + '</div><div class="fsub">' + s.sub + '</div></div></div>';
+    }).join('') + '</div>';
     var finHTML = HAS_FIN ? (
-      '<div class="panel"><h2>💰 Faturamento no período <span style="font-weight:500;color:var(--ink-3)">— planilha das secretárias</span></h2>' +
-      '<div class="hero" style="margin:8px 0 6px">' +
-      '<div class="hcard"><div class="hk">Faturamento total</div><div class="hv g">' + money0(fin.fatTot) + '</div><div class="hd">consultas ' + money0(fin.fatCon) + ' · cirurgias ' + money0(fin.fatCir) + '</div></div>' +
-      '<div class="op">·</div>' +
-      '<div class="hcard"><div class="hk">Agendamentos confirmados</div><div class="hv">' + int(fin.agend) + '</div><div class="hd">' + int(fin.cirurg) + ' cirurgia(s) confirmada(s)</div></div>' +
-      '<div class="op">·</div>' +
-      '<div class="hcard"><div class="hk">ROAS geral <small>referência</small></div><div class="hv">' + M.roas(div(fin.fatTot, cur.spend)) + '</div><div class="hd">faturamento ÷ investimento</div></div>' +
-      '</div>' +
-      '<div class="alertbar amber">⚠️ <b>Faturamento inclui Unimed / indicação / particular — não é só tráfego.</b> O ROAS acima é referência da operação inteira, não do tráfego pago. O <b>ROAS do tráfego</b> (cruzando telefone do lead com o faturamento) entra na Fase 3, quando a coluna de telefone das secretárias for preenchida.</div>' +
+      '<div class="panel"><h2>💰 Atendimento & faturamento no período <span style="font-weight:500;color:var(--ink-3)">— planilha das secretárias</span></h2>' +
+      (finEmpty
+        ? '<p class="note">Nenhum agendamento ou valor lançado no período. Assim que as secretárias preencherem a planilha (consultas e cirurgias confirmadas + valores), o funil aparece aqui automaticamente — sem telefone, só os números.</p>'
+        : finFunnel + '<div class="alertbar amber">⚠️ <b>Faturamento inclui Unimed / indicação / particular — não é só tráfego.</b> O ROAS acima é referência da operação inteira, não do tráfego pago.</div>') +
       '</div>'
     ) : '';
 
