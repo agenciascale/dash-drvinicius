@@ -157,8 +157,14 @@
   function leadDate(s) {
     s = String(s || '').trim();
     var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
-    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);   // planilha pt-BR: D/M/Y
-    if (m) { return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2); }
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);   // gviz desta planilha: M/D/Y (US)
+    if (m) {
+      var a = +m[1], b = +m[2], y = m[3], mo, da;
+      if (a > 12) { da = a; mo = b; }        // 1º campo > 12 → só pode ser dia (D/M/Y)
+      else if (b > 12) { mo = a; da = b; }   // 2º campo > 12 → 1º é mês (M/D/Y)
+      else { mo = a; da = b; }               // ambíguo → gviz desta planilha usa M/D/Y
+      return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + da).slice(-2);
+    }
     return '';
   }
   function fetchLeads(cb) {
