@@ -186,6 +186,35 @@
     return o;
   }
 
+  /* -------------------------------------------- funil por etapa (aba Sessões, gviz ao vivo) */
+  var SESS_TAB = 'Sessões';
+  var SESS = null;   // null=carregando · {error:true} · {rows:[{step}]}
+  var STEP_LABELS = ['Entrou (intro)', 'Procedimento', 'Plano', 'Momento', 'Decisão', 'Histórico', 'Investimento', 'Local', 'Contato', 'Enviou'];
+  function fetchSessions(cb) {
+    var url = 'https://docs.google.com/spreadsheets/d/' + LEADS_SHEET + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent(SESS_TAB) + '&_=' + Date.now();
+    fetch(url).then(function (r) { return r.text(); }).then(function (t) {
+      var rows = parseCSV(t), out = [];
+      for (var i = 1; i < rows.length; i++) {          // pula cabeçalho
+        var r = rows[i]; if (!r || r.length < 4) continue;
+        var step = parseInt(String(r[3] || '').replace(/[^\d-]/g, ''), 10);   // col D = Etapa máx (nº)
+        if (isNaN(step)) continue;
+        out.push({ step: step });
+      }
+      SESS = { rows: out };
+      cb && cb();
+    }).catch(function () { SESS = { error: true }; cb && cb(); });
+  }
+  // funil acumulado: counts[n] = quantas sessões alcançaram a etapa n (0..9). Sempre desde o início do rastreamento.
+  function sessFunnel() {
+    if (!SESS || !SESS.rows) return null;
+    var counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    SESS.rows.forEach(function (r) {
+      var s = r.step; if (s < 0) return; if (s > 9) s = 9;
+      for (var n = 0; n <= s; n++) counts[n]++;
+    });
+    return counts;
+  }
+
   /* ---------------------------------------------------------------- régua de benchmarks (Leandro) */
   var BANDS = {
     ctr: { label: 'CTR (link)', good: 0.01, mid: 0.006, dir: 'high', fmt: M.pct1 },
@@ -427,7 +456,36 @@
       qcard('q-cold', '🔵', 'Frios', lc.baixa, '< 21') +
       '</div>';
     var note = '<p class="note" style="margin-top:10px">Ranking pela <b>pontuação do quiz</b> (0–48). Atualiza sozinho a cada resposta nova — é só recarregar.' + (lc.sem ? ' <span style="color:var(--ink-3)">' + int(lc.sem) + ' sem classificação.</span>' : '') + '</p>';
-    return '<div class="panel quiz-panel">' + head + '<div class="funnel">' + funnelHTML + '</div>' + ranking + note + '</div>';
+    return '<div class="panel quiz-panel">' + head + '<div class="funnel">' + funnelHTML + '</div>' + renderStepFunnel() + ranking + note + '</div>';
+  }
+
+  /* funil por etapa — até onde as pessoas vão DENTRO do quiz (aba Sessões) */
+  function renderStepFunnel() {
+    var title = '<h3 class="sf-h">📉 Até onde as pessoas vão no quiz <small>respostas por etapa · desde o início do rastreamento</small></h3>';
+    if (SESS === null) return '<div class="stepfunnel-wrap">' + title + '<p class="note">⏳ Lendo as etapas na planilha…</p></div>';
+    if (SESS && SESS.error) return '';   // silencioso: não atrapalha o resto do painel
+    var counts = sessFunnel();
+    if (!counts || counts[0] === 0) return '<div class="stepfunnel-wrap">' + title + '<p class="note">Ainda sem visita registrada por etapa. O rastreamento é novo — assim que entrar tráfego, o funil aparece aqui.</p></div>';
+    var top = counts[0];
+    // acha a maior queda (só destaca com amostra mínima na etapa de origem)
+    var worstDrop = -1, worstIdx = -1;
+    for (var k = 1; k <= 9; k++) {
+      if (counts[k - 1] >= 3) { var drop = 1 - counts[k] / counts[k - 1]; if (drop > worstDrop) { worstDrop = drop; worstIdx = k; } }
+    }
+    var rows = '';
+    for (var n = 0; n <= 9; n++) {
+      var c = counts[n], wTop = top ? c / top * 100 : 0, isW = (n === worstIdx);
+      var pass = (n === 0) ? '100% entrou'
+        : '<span' + (isW ? ' class="sf-drop"' : '') + '>' + pct1(counts[n - 1] > 0 ? c / counts[n - 1] : 0) + ' da etapa anterior' + (isW ? ' ⚠️' : '') + '</span>';
+      rows += '<div class="sfrow">' +
+        '<div class="sflab">' + n + ' · ' + STEP_LABELS[n] + '</div>' +
+        '<div class="sftrack"><div class="sffill' + (isW ? ' worst' : '') + '" style="width:' + Math.max(wTop, 5).toFixed(1) + '%"><span class="sfc">' + int(c) + '</span></div></div>' +
+        '<div class="sfpct">' + pass + '</div></div>';
+    }
+    var enviou = counts[9];
+    var foot = '<p class="note" style="margin-top:8px">De <b>' + int(top) + '</b> que entraram, <b>' + int(enviou) + '</b> chegaram a enviar (' + pct1(top ? enviou / top : 0) + ').' +
+      (worstIdx > 0 ? ' Maior desistência: <b>' + STEP_LABELS[worstIdx - 1] + ' → ' + STEP_LABELS[worstIdx] + '</b>.' : '') + '</p>';
+    return '<div class="stepfunnel-wrap">' + title + '<div class="stepfunnel">' + rows + '</div>' + foot + '</div>';
   }
 
   function renderOverview() {
@@ -927,6 +985,7 @@
     initCampSelector();
     setPeriod(minDate, maxDate, 'all');
     fetchLeads(function () { if (STATE.tab === 'overview' && (STATE.campGroup === 'all' || STATE.campGroup === 'quiz')) refresh(); });
+    fetchSessions(function () { if (STATE.tab === 'overview' && (STATE.campGroup === 'all' || STATE.campGroup === 'quiz')) refresh(); });
   }
 
   /* ---------------------------------------------------------------- tema */
