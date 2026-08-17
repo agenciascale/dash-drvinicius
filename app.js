@@ -48,6 +48,10 @@
   var maxDate = daily.length ? daily[daily.length - 1].d : '2026-01-01';
   function firstOfMonth(ds) { return ds.slice(0, 7) + '-01'; }
   function clampD(ds) { return ds < minDate ? minDate : (ds > maxDate ? maxDate : ds); }
+  // "hoje" de referência = data do build (BRT). "dia fechado" = ontem — usado nos presets de N dias (igual Meta).
+  var genDate = String(D.generatedAt || '').slice(0, 10);
+  var refToday = /^\d{4}-\d{2}-\d{2}$/.test(genDate) ? clampD(genDate) : maxDate;
+  var lastClosed = clampD(dayAdd(refToday, -1));
 
   var STATE = {
     from: minDate, to: maxDate, preset: 'all', compare: true, tab: 'overview',
@@ -134,6 +138,23 @@
       t.conv += g.conv; t.reply += g.reply; t.lead += g.lead; t.sched += g.sched;
     }
     return derive(t);
+  }
+
+  /* ------------------------------------------ campanha de MENSAGEM: SÓ E2-CAP + ENGJ (Leandro)
+     "Novos contatos por mensagem" = onsite_conversion.messaging_first_reply (campo `reply`).
+     E2-CAP LEADS = quiz · E1-DIST = seguidores → ficam de fora deste número. */
+  function isMsgCamp(c) { var u = String(c || '').toUpperCase(); return u.indexOf('E2-CAP') >= 0 && /\bENGJ?\b/.test(u); }
+  function msgAgg(from, to) {
+    var t = blank();
+    for (var i = 0; i < grain.length; i++) {
+      var g = grain[i]; if (!within(g.d, from, to)) continue; if (!isMsgCamp(g.camp)) continue;
+      t.spend += g.spend; t.impr += g.impr; t.reach += g.reach; t.clk += g.clk;
+      t.conv += g.conv; t.reply += g.reply; t.lead += g.lead; t.sched += g.sched;
+    }
+    var o = derive(t);
+    o.contatos = t.reply;                  // Novos contatos por mensagem
+    o.cpContato = div(t.spend, t.reply);   // custo por novo contato (gasto já com imposto)
+    return o;
   }
 
   /* ---------------------------------------------------------------- leads do quiz (planilha ao vivo, gviz) */
@@ -499,6 +520,7 @@
     var pTo = dayAdd(from, -1), pFrom = dayAdd(pTo, -(len - 1));
     var cur = aggregate(from, to), prev = STATE.compare ? aggregate(pFrom, pTo) : null;
     var fin = finAgg(from, to);
+    var msg = msgAgg(from, to), pmsg = STATE.compare ? msgAgg(pFrom, pTo) : null;   // Novos contatos por mensagem (E2-CAP · ENGJ)
 
     var h = health(cur), sc = scoreColor(h.score);
     var healthHTML = gauge(h.score, sc) +
@@ -517,20 +539,19 @@
       '<div class="hcard"><div class="hk">💸 Investimento <small>c/ imposto</small></div>' +
       '<div class="hv">' + M.money(cur.spend) + '</div><div class="hd">' + miniDelta(cur.spend, prev && prev.spend, null) + ' vs anterior</div></div>' +
       '<div class="op">→</div>' +
-      '<div class="hcard"><div class="hk">💬 Conversas <small>WhatsApp</small></div>' +
-      '<div class="hv g">' + M.int(cur.conv) + '</div><div class="hd">' + miniDelta(cur.conv, prev && prev.conv, true) + ' vs anterior</div></div>' +
+      '<div class="hcard"><div class="hk">💬 Novos contatos <small>por mensagem · E2-CAP·ENGJ</small></div>' +
+      '<div class="hv g">' + M.int(msg.contatos) + '</div><div class="hd">' + miniDelta(msg.contatos, pmsg && pmsg.contatos, true) + ' vs anterior</div></div>' +
       '<div class="op">=</div>' +
-      '<div class="hcard roas"><div class="hk">🎯 Custo por conversa</div>' +
-      '<div class="hv">' + M.money(cur.cpConv) + '</div><div class="hd">' + miniDelta(cur.cpConv, prev && prev.cpConv, false) + ' vs anterior</div></div>' +
+      '<div class="hcard roas"><div class="hk">🎯 Custo por novo contato <small>c/ imposto</small></div>' +
+      '<div class="hv">' + M.money(msg.cpContato) + '</div><div class="hd">' + miniDelta(msg.cpContato, pmsg && pmsg.cpContato, false) + ' vs anterior</div></div>' +
       '<div class="op">·</div>' +
       '<div class="hcard"><div class="hk">📅 Programar <small>LP</small> · 🧲 Leads</div>' +
       '<div class="hv">' + M.int(cur.sched) + ' · ' + M.int(cur.lead) + '</div><div class="hd">' + (cur.sched === 0 ? 'LP sem conversão' : 'custo/prog ' + M.money(cur.cpSched)) + '</div></div>';
 
-    var heroLine = (cur.conv > 0 || cur.lead > 0 || cur.sched > 0)
-      ? '<b>' + int(cur.conv) + ' conversas</b> no período por <b>' + M.money(cur.spend) + '</b> investidos — custo médio por conversa <b>' + M.money(cur.cpConv) + '</b>' +
-        (cur.reply > 0 ? ' · ' + int(cur.reply) + ' responderam (' + M.pct1(cur.replyRate) + ')' : '') +
+    var heroLine = (msg.contatos > 0 || cur.lead > 0 || cur.sched > 0)
+      ? '<b>' + int(msg.contatos) + ' novos contatos por mensagem</b> (campanha E2-CAP · ENGJ) por <b>' + M.money(msg.spend) + '</b> investidos — custo médio por contato <b>' + M.money(msg.cpContato) + '</b>' +
         '. Programar (LP): <b>' + int(cur.sched) + '</b> · Leads: <b>' + int(cur.lead) + '</b>.'
-      : 'Sem conversa, programar ou lead no período.';
+      : 'Sem novo contato por mensagem, programar ou lead no período.';
 
     // painel de leads do quiz (planilha ao vivo) + banner por grupo de campanha
     var quizMedia = aggregateGroup('quiz', from, to);
@@ -543,11 +564,11 @@
     var lpAlert = groupBanner + quizPanel;
 
     var finEmpty = (fin.agend === 0 && fin.cirurg === 0 && fin.fatTot === 0);
-    var finTicket = div(fin.fatCon, fin.agend), finConvCir = div(fin.cirurg, fin.agend);
+    var finTicket = div(fin.fatCon, fin.agend);
     var finStages = [
-      { n: 'Consultas confirmadas', big: int(fin.agend), bg: '#8fe01e', ink: '#0c1400', cl: 'Faturamento consultas', cv: money0(fin.fatCon), sub: fin.agend ? 'ticket médio ' + money0(finTicket || 0) : 'agendamentos confirmados no período' },
-      { n: 'Cirurgias confirmadas', big: int(fin.cirurg), bg: '#5aa60f', ink: '#fff', cl: 'Faturamento cirurgias', cv: money0(fin.fatCir), sub: fin.agend ? 'consulta → cirurgia ' + pct1(finConvCir || 0) : 'nenhuma no período' },
-      { n: 'Faturamento total', big: money0(fin.fatTot), bg: '#356606', ink: '#fff', cl: 'ROAS geral (ref.)', cv: M.roas(div(fin.fatTot, cur.spend)), sub: 'consultas + cirurgias · operação inteira' }
+      { n: 'Agendamentos / consultas', big: int(fin.agend), bg: '#8fe01e', ink: '#0c1400', cl: 'Valor em consultas', cv: money0(fin.fatCon), sub: fin.agend ? 'ticket médio ' + money0(finTicket || 0) : 'agendamentos confirmados no período' },
+      { n: 'Cirurgias confirmadas', big: int(fin.cirurg), bg: '#5aa60f', ink: '#fff', cl: 'Valor em cirurgias', cv: money0(fin.fatCir), sub: fin.cirurg ? 'cirurgias confirmadas no período' : 'nenhuma no período' },
+      { n: 'Valor total', big: money0(fin.fatTot), bg: '#356606', ink: '#fff', cl: 'consultas + cirurgias', cv: '', sub: 'soma dos valores lançados na planilha' }
     ];
     var finFunnel = '<div class="funnel" style="margin-top:6px">' + finStages.map(function (s) {
       return '<div class="fstage"><div class="fl" style="background:' + s.bg + ';color:' + s.ink + '"><div class="fn">' + s.n + '</div><div class="fv">' + s.big + '</div></div>' +
@@ -556,8 +577,8 @@
     var finHTML = HAS_FIN ? (
       '<div class="panel"><h2>💰 Atendimento & faturamento no período <span style="font-weight:500;color:var(--ink-3)">— planilha das secretárias</span></h2>' +
       (finEmpty
-        ? '<p class="note">Nenhum agendamento ou valor lançado no período. Assim que as secretárias preencherem a planilha (consultas e cirurgias confirmadas + valores), o funil aparece aqui automaticamente — sem telefone, só os números.</p>'
-        : finFunnel + '<div class="alertbar amber">⚠️ <b>Faturamento inclui Unimed / indicação / particular — não é só tráfego.</b> O ROAS acima é referência da operação inteira, não do tráfego pago.</div>') +
+        ? '<p class="note">Nenhum agendamento ou valor lançado no período. Assim que as secretárias preencherem a planilha (consultas e cirurgias confirmadas + valores), os números aparecem aqui automaticamente.</p>'
+        : finFunnel + '<div class="alertbar amber">⚠️ <b>Números da planilha das secretárias — consultas + cirurgias no total.</b> Ainda não dá pra separar o que veio de campanha, então mostramos só a quantidade e os valores (inclui Unimed / indicação / particular).</div>') +
       '</div>'
     ) : '';
 
@@ -943,22 +964,23 @@
     $('from').min = $('to').min = minDate; $('from').max = $('to').max = maxDate;
 
     var totalSpend = daily.reduce(function (s, r) { return s + r.spend; }, 0);
-    var totConv = daily.reduce(function (s, r) { return s + r.conv; }, 0);
+    var totContatos = grain.reduce(function (s, g) { return s + (isMsgCamp(g.camp) ? g.reply : 0); }, 0);
     var totSched = daily.reduce(function (s, r) { return s + r.sched; }, 0);
     $('footer').innerHTML =
       'Gasto total do período completo: ' + money(totalSpend) + ' (já com imposto ×' + taxStr(TAX) + '). ' +
       'Fonte: <b>Meta Graph API</b> (insights nível anúncio) · conta <code>' + esc(m.account || '') + '</code> + planilha das secretárias (faturamento). ' +
-      '<b>Conversas</b> = conversa iniciada no WhatsApp (' + int(totConv) + ' no total) · <b>Programar</b> = conversão da LP (' + int(totSched) + '). ' +
+      '<b>Novos contatos por mensagem</b> = 1ª resposta no WhatsApp da campanha E2-CAP·ENGJ (' + int(totContatos) + ' no total) · <b>Programar</b> = conversão da LP (' + int(totSched) + '). ' +
       'CTR sempre de <b>link</b>. Somente leitura.';
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (b) {
       b.onclick = function () {
         var p = b.dataset.preset;
         if (p === 'all') return setPeriod(minDate, maxDate, 'all');
-        if (p === 'today') return setPeriod(maxDate, maxDate, 'today');
-        if (p === 'yesterday') { var y = dayAdd(maxDate, -1); return setPeriod(y, y, 'yesterday'); }
-        if (p === 'month') return setPeriod(firstOfMonth(maxDate), maxDate, 'month');
-        var n = +p; return setPeriod(dayAdd(maxDate, -(n - 1)), maxDate, p);
+        if (p === 'today') return setPeriod(refToday, refToday, 'today');
+        if (p === 'yesterday') return setPeriod(lastClosed, lastClosed, 'yesterday');
+        if (p === 'month') return setPeriod(firstOfMonth(refToday), maxDate, 'month');
+        // presets de N dias = dias FECHADOS (exclui hoje, igual Meta): termina em ontem/último fechado
+        var n = +p; return setPeriod(dayAdd(lastClosed, -(n - 1)), lastClosed, p);
       };
     });
     function clampDates() { var f = $('from').value, t = $('to').value; if (!f || !t) return; if (f > t) { var tmp = f; f = t; t = tmp; } setPeriod(f, t, 'custom'); }
@@ -989,7 +1011,7 @@
     });
 
     initCampSelector();
-    setPeriod(minDate, maxDate, 'all');
+    setPeriod(firstOfMonth(refToday), maxDate, 'month');   // abre sempre em "Este mês"
     fetchLeads(function () { if (STATE.tab === 'overview' && (STATE.campGroup === 'all' || STATE.campGroup === 'quiz')) refresh(); });
     fetchSessions(function () { if (STATE.tab === 'overview' && (STATE.campGroup === 'all' || STATE.campGroup === 'quiz')) refresh(); });
   }
