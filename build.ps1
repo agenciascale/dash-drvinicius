@@ -87,10 +87,24 @@ $url = "https://graph.facebook.com/$API_VER/$ACCOUNT/insights"
 $qs  = "?level=ad&time_increment=1&limit=500&fields=$fields&time_range=$tr&access_token=$TOKEN"
 $next = $url + $qs
 
+# fetch com retry/backoff: a Meta as vezes devolve erro transitorio (timeout/500/rate-limit)
+# e sem retry o build inteiro falha e o deploy nao sai. Tenta ate 4x com espera crescente.
+function Invoke-RestWithRetry($uri, $tries = 4) {
+  for ($k = 1; $k -le $tries; $k++) {
+    try { return Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 120 }
+    catch {
+      if ($k -eq $tries) { throw }
+      $wait = $k * 5
+      Write-Host ("  aviso: fetch falhou (tentativa {0}/{1}) -> {2}. Retry em {3}s..." -f $k, $tries, $_.Exception.Message, $wait)
+      Start-Sleep -Seconds $wait
+    }
+  }
+}
+
 $rows = New-Object System.Collections.Generic.List[object]
 $page = 0
 while ($next) {
-  $resp = Invoke-RestMethod -Uri $next -Method Get
+  $resp = Invoke-RestWithRetry $next
   if ($resp.data) { foreach ($d in $resp.data) { $rows.Add($d) } }
   $page++
   $next = if ($resp.paging -and $resp.paging.next) { $resp.paging.next } else { $null }

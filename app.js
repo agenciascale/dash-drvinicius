@@ -83,12 +83,13 @@
     o.cpm = div(t.spend * 1000, t.impr);
     o.ctr = div(t.clk, t.impr);            // CTR de LINK
     o.cpc = div(t.spend, t.clk);
-    o.cpConv = div(t.spend, t.conv);       // custo por conversa (headline)
-    o.cpLead = div(t.spend, t.lead);       // custo por lead (secundário)
+    o.cpConv = div(t.spend, t.conv);       // custo por conversa iniciada (métrica bruta)
+    o.cpReply = div(t.spend, t.reply);     // custo por Novo contato por mensagem (HEADLINE)
+    o.cpLead = div(t.spend, t.lead);       // custo por lead de formulário (secundário)
     o.cpSched = div(t.spend, t.sched);     // custo por Programar (secundário)
-    o.convRate = div(t.conv, t.clk);       // clique → conversa
-    o.replyRate = div(t.reply, t.conv);    // conversas que responderam
-    o.result = t.conv || 0;                // resultado-headline = conversas
+    o.convRate = div(t.reply, t.clk);      // clique → novo contato
+    o.replyRate = div(t.reply, t.conv);    // conversas que viraram contato
+    o.result = t.reply || 0;               // resultado-headline = Novos contatos por mensagem
     return o;
   }
   function aggregate(from, to) {
@@ -96,7 +97,7 @@
     for (var i = 0; i < grain.length; i++) {
       var g = grain[i]; if (!within(g.d, from, to)) continue; if (!campOK(g.camp)) continue;
       t.spend += g.spend; t.impr += g.impr; t.reach += g.reach; t.clk += g.clk;
-      t.conv += g.conv; t.reply += g.reply; t.lead += g.lead; t.sched += g.sched;
+      t.conv += g.conv; t.reply += (isMsgCamp(g.camp) ? g.reply : 0); t.lead += g.lead; t.sched += g.sched;
     }
     return derive(t);
   }
@@ -106,7 +107,7 @@
       var g = grain[j]; if (!within(g.d, from, to)) continue; if (!campOK(g.camp)) continue;
       var m = md[g.d] || (md[g.d] = blank());
       m.spend += g.spend; m.impr += g.impr; m.reach += g.reach; m.clk += g.clk;
-      m.conv += g.conv; m.reply += g.reply; m.lead += g.lead; m.sched += g.sched;
+      m.conv += g.conv; m.reply += (isMsgCamp(g.camp) ? g.reply : 0); m.lead += g.lead; m.sched += g.sched;
     }
     var out = [];
     for (var i = 0; i < daily.length; i++) {
@@ -410,8 +411,8 @@
   function tderive(t) {
     var o = Object.assign({}, t);
     o.cpm = div(t.spend * 1000, t.impr); o.ctr = div(t.clk, t.impr); o.cpc = div(t.spend, t.clk);
-    o.cpConv = div(t.spend, t.conv); o.cpLead = div(t.spend, t.lead); o.cpSched = div(t.spend, t.sched);
-    o.convRate = div(t.conv, t.clk);
+    o.cpConv = div(t.spend, t.conv); o.cpReply = div(t.spend, t.reply); o.cpLead = div(t.spend, t.lead); o.cpSched = div(t.spend, t.sched);
+    o.convRate = div(t.reply, t.clk);
     return o;
   }
   function accum(a, g) { for (var i = 0; i < RAW.length; i++) { a[RAW[i]] += g[RAW[i]]; } }
@@ -451,9 +452,9 @@
     { k: 'ctr', label: 'CTR', fmt: M.pct1, scale: 'high' },
     { k: 'cpc', label: 'CPC', fmt: M.money, scale: 'low' },
     { k: 'clk', label: 'Cliques', fmt: M.int },
-    { k: 'conv', label: 'Conversas', fmt: M.int, scale: 'high' },
-    { k: 'cpConv', label: 'Custo/conversa', fmt: M.money, scale: 'low' },
-    { k: 'lead', label: 'Leads', fmt: M.int },
+    { k: 'reply', label: 'Novos contatos', fmt: M.int, scale: 'high' },
+    { k: 'cpReply', label: 'Custo/contato', fmt: M.money, scale: 'low' },
+    { k: 'lead', label: 'Formulário', fmt: M.int },
     { k: 'sched', label: 'Programar', fmt: M.int }
   ];
 
@@ -591,8 +592,8 @@
       '<div class="panel"><h2>Investimento por objetivo <span style="font-weight:500;color:var(--ink-3)">— com imposto ×' + taxStr(TAX) + '</span></h2><div class="funil-grid" id="funilInv"></div></div>' +
       '<div class="grid-funnel">' +
       '<div class="panel"><h2>Funil completo</h2><p class="note">Investimento → Impressões → Cliques → Leads. Cada etapa mostra o <b>volume</b> e, à direita, o <b>custo</b> e a <b>taxa de passagem</b>.</p><div class="funnel" id="funnel"></div></div>' +
-      '<div class="panel"><h2>Resultados por dia</h2><p class="note">Barras = <b>Investimento c/ imposto</b> (esq., R$) · linha = <b>Conversas</b> (dir., nº).</p><div class="legend" id="legA"></div><div id="chA"></div>' +
-      '<h2 style="margin-top:20px">Conversas × Responderam × Custo/conversa</h2><p class="note">Barras = <b>Conversas</b> e <b>Responderam</b> (esq., nº) · linha = <b>Custo por conversa</b> (dir., R$).</p><div class="legend" id="legB"></div><div id="chB"></div></div>' +
+      '<div class="panel"><h2>Resultados por dia</h2><p class="note">Barras = <b>Investimento c/ imposto</b> (esq., R$) · linha = <b>Novos contatos por mensagem</b> (dir., nº).</p><div class="legend" id="legA"></div><div id="chA"></div>' +
+      '<h2 style="margin-top:20px">Novos contatos × Custo por contato</h2><p class="note">Barras = <b>Novos contatos por mensagem</b> (esq., nº) · linha = <b>Custo por contato</b> (dir., R$).</p><div class="legend" id="legB"></div><div id="chB"></div></div>' +
       '</div>' +
       '<div class="panel"><h2 id="metricTitle">Investimento por dia</h2><p class="note">Escolha a métrica; com a comparação ligada, a linha tracejada é o período anterior alinhado dia a dia.</p><div class="tabs" id="metricTabs"></div><div class="legend" id="legend"></div><div id="chMetric"></div></div>' +
       '<div class="panel"><h2>Visão diária — principais métricas por dia</h2><p class="note">Uma linha por dia, mais recente no topo. Heatmap por coluna: <b style="color:var(--good-text)">verde = melhor</b>, <b style="color:var(--critical)">vermelho = pior</b> no período.</p><div class="tblwrap"><table id="dtbl" class="daily"></table></div></div>';
@@ -602,16 +603,16 @@
     renderFunilInv(from, to);
     renderFunnel(cur);
     var rows = dailyRows(from, to), pRows = dailyRows(pFrom, pTo);
-    comboChart($('chA'), rows, { bars: [{ key: 'spend', color: 'var(--critical)', name: 'Investimento c/ imposto' }], line: { key: 'conv', color: 'var(--good)', name: 'Conversas' }, leftFmt: M.money0, rightFmt: M.int, lineFmt: M.int });
-    comboChart($('chB'), rows, { bars: [{ key: 'conv', color: 'var(--good)', name: 'Conversas' }, { key: 'reply', color: 'var(--series-2)', name: 'Responderam' }], line: { key: 'cpConv', color: 'var(--ink-1)', name: 'Custo/conversa' }, leftFmt: M.int, rightFmt: M.money0, lineFmt: M.money });
+    comboChart($('chA'), rows, { bars: [{ key: 'spend', color: 'var(--critical)', name: 'Investimento c/ imposto' }], line: { key: 'reply', color: 'var(--good)', name: 'Novos contatos' }, leftFmt: M.money0, rightFmt: M.int, lineFmt: M.int });
+    comboChart($('chB'), rows, { bars: [{ key: 'reply', color: 'var(--good)', name: 'Novos contatos' }], line: { key: 'cpReply', color: 'var(--ink-1)', name: 'Custo/contato' }, leftFmt: M.int, rightFmt: M.money0, lineFmt: M.money });
     var lgSq = function (c) { return '<i style="background:' + c + '"></i>'; }, lgLn = function (c) { return '<i style="width:15px;height:0;border-top:2px solid ' + c + ';border-radius:0"></i>'; };
-    $('legA').innerHTML = '<span>' + lgSq('var(--critical)') + '<span style="color:var(--ink-2)">Investimento c/ imposto</span></span><span>' + lgLn('var(--good)') + '<span style="color:var(--ink-2)">Conversas (eixo dir.)</span></span>';
-    $('legB').innerHTML = '<span>' + lgSq('var(--good)') + '<span style="color:var(--ink-2)">Conversas</span></span><span>' + lgSq('var(--series-2)') + '<span style="color:var(--ink-2)">Responderam</span></span><span>' + lgLn('var(--ink-1)') + '<span style="color:var(--ink-2)">Custo/conversa (eixo dir.)</span></span>';
+    $('legA').innerHTML = '<span>' + lgSq('var(--critical)') + '<span style="color:var(--ink-2)">Investimento c/ imposto</span></span><span>' + lgLn('var(--good)') + '<span style="color:var(--ink-2)">Novos contatos (eixo dir.)</span></span>';
+    $('legB').innerHTML = '<span>' + lgSq('var(--good)') + '<span style="color:var(--ink-2)">Novos contatos por mensagem</span></span><span>' + lgLn('var(--ink-1)') + '<span style="color:var(--ink-2)">Custo/contato (eixo dir.)</span></span>';
 
     var METRICS = [
-      { k: 'spend', label: 'Investimento', fmt: M.money0 }, { k: 'conv', label: 'Conversas', fmt: M.int },
-      { k: 'cpConv', label: 'Custo/conversa', fmt: M.money }, { k: 'reply', label: 'Responderam', fmt: M.int },
-      { k: 'lead', label: 'Leads', fmt: M.int }, { k: 'sched', label: 'Programar', fmt: M.int },
+      { k: 'spend', label: 'Investimento', fmt: M.money0 }, { k: 'reply', label: 'Novos contatos', fmt: M.int },
+      { k: 'cpReply', label: 'Custo/contato', fmt: M.money }, { k: 'conv', label: 'Conversas inic.', fmt: M.int },
+      { k: 'lead', label: 'Formulário', fmt: M.int }, { k: 'sched', label: 'Programar', fmt: M.int },
       { k: 'cpc', label: 'CPC', fmt: M.money }, { k: 'cpm', label: 'CPM', fmt: M.money0 },
       { k: 'ctr', label: 'CTR', fmt: M.pct1 }, { k: 'impr', label: 'Impressões', fmt: M.int }, { k: 'clk', label: 'Cliques', fmt: M.int }
     ];
@@ -628,17 +629,17 @@
   }
 
   var FUNIL_META = {
-    'Mensagens': { color: 'var(--good)', desc: 'conversas / WhatsApp (CTWA)' },
+    'Mensagens': { color: 'var(--good)', desc: 'novos contatos / WhatsApp (CTWA)' },
     'Leads/LP': { color: 'var(--brand)', desc: 'landing page / formulário' },
     'Topo': { color: 'var(--series-2)', desc: 'alcance / perfil (topo)' },
     'Outros': { color: 'var(--ink-3)', desc: 'demais campanhas' }
   };
   function renderFunilInv(from, to) {
     var g = {}, total = 0;
-    for (var i = 0; i < grain.length; i++) { var x = grain[i]; if (!within(x.d, from, to)) continue; if (!campOK(x.camp)) continue; var f = funnelOf(x.camp); (g[f] || (g[f] = { spend: 0, clk: 0, conv: 0, lead: 0, sched: 0, impr: 0 })); g[f].spend += x.spend; g[f].clk += x.clk; g[f].conv += x.conv; g[f].lead += x.lead; g[f].sched += x.sched; g[f].impr += x.impr; total += x.spend; }
+    for (var i = 0; i < grain.length; i++) { var x = grain[i]; if (!within(x.d, from, to)) continue; if (!campOK(x.camp)) continue; var f = funnelOf(x.camp); (g[f] || (g[f] = { spend: 0, clk: 0, conv: 0, reply: 0, lead: 0, sched: 0, impr: 0 })); g[f].spend += x.spend; g[f].clk += x.clk; g[f].conv += x.conv; g[f].reply += x.reply; g[f].lead += x.lead; g[f].sched += x.sched; g[f].impr += x.impr; total += x.spend; }
     var cards = ['Mensagens', 'Leads/LP', 'Topo', 'Outros'].filter(function (k) { return g[k]; }).map(function (k) {
       var o = g[k], m = FUNIL_META[k], share = total ? o.spend / total : 0;
-      var detail = k === 'Mensagens' ? (int(o.conv) + ' conversas · ' + money0(div(o.spend, o.conv) || 0) + '/conv')
+      var detail = k === 'Mensagens' ? (int(o.reply) + ' novos contatos · ' + money0(div(o.spend, o.reply) || 0) + '/contato')
         : k === 'Leads/LP' ? (int(o.sched + o.lead) + ' resultado(s) · ' + (o.sched === 0 && o.lead === 0 ? 'sem conversão' : money0(div(o.spend, o.sched + o.lead) || 0) + '/result'))
         : (int(o.impr) + ' impressões · ' + int(o.clk) + ' cliques');
       return '<div class="finv"><div class="fshare">' + pct1(share) + '</div><div class="ftop"><span class="fico" style="background:' + m.color + '"></span>' + k + '</div><div class="fmain" style="color:' + m.color + '">' + money0(o.spend) + '</div><div class="fmeta">' + m.desc + '<br>' + detail + '</div></div>';
@@ -662,8 +663,8 @@
   var DCOLS = [
     { k: 'd', label: 'Dia' }, { k: 'spend', label: 'Invest.', fmt: M.money }, { k: 'cpm', label: 'CPM', fmt: M.money, scale: 'low' },
     { k: 'cpc', label: 'CPC', fmt: M.money, scale: 'low' }, { k: 'ctr', label: 'CTR', fmt: M.pct1, scale: 'high' },
-    { k: 'clk', label: 'Cliques', fmt: M.int }, { k: 'conv', label: 'Conversas', fmt: M.int, scale: 'high' }, { k: 'cpConv', label: 'Custo/conversa', fmt: M.money, scale: 'low' },
-    { k: 'lead', label: 'Leads', fmt: M.int }, { k: 'sched', label: 'Programar', fmt: M.int }
+    { k: 'clk', label: 'Cliques', fmt: M.int }, { k: 'reply', label: 'Novos contatos', fmt: M.int, scale: 'high' }, { k: 'cpReply', label: 'Custo/contato', fmt: M.money, scale: 'low' },
+    { k: 'lead', label: 'Formulário', fmt: M.int }, { k: 'sched', label: 'Programar', fmt: M.int }
   ];
   function renderDaily(from, to) {
     var rows = dailyRows(from, to).reverse();
@@ -702,13 +703,13 @@
       kpi('CTR (link)', M.pct1(cur.ctr), 'bom ≥ 1%', flagFor('ctr', cur.ctr)),
       kpi('CPC', M.money(cur.cpc), 'bom ≤ R$2', flagFor('cpc', cur.cpc)),
       kpi('Cliques', M.int(cur.clk), int(cur.impr) + ' impressões', ''),
-      kpi('Conversas', M.int(cur.conv), 'custo/conversa ' + M.money(cur.cpConv), miniDelta(cur.conv, prev && prev.conv, true)),
-      kpi('Programar · Leads', M.int(cur.sched) + ' · ' + M.int(cur.lead), cur.sched === 0 ? 'LP sem conversão' : 'custo/prog ' + M.money(cur.cpSched), ''),
-      kpi('Clique → Conversa', M.pct1(cur.convRate), 'conversas ÷ cliques', '')
+      kpi('Novos contatos', M.int(cur.reply), 'custo/contato ' + M.money(cur.cpReply), miniDelta(cur.reply, prev && prev.reply, true)),
+      kpi('Programar · Form.', M.int(cur.sched) + ' · ' + M.int(cur.lead), cur.sched === 0 ? 'LP sem conversão' : 'custo/prog ' + M.money(cur.cpSched), ''),
+      kpi('Clique → Contato', M.pct1(cur.convRate), 'novos contatos ÷ cliques', '')
     ];
 
     $('trafficView').innerHTML =
-      '<div class="scopenote"><span>🎯 Aba operacional: métricas de mídia (Meta) e resultado por anúncio. <b>Conversas</b> = conversa iniciada no WhatsApp (CTWA); <b>Programar</b> = conversão da LP (Schedule); <b>Leads</b> = formulário. CTR sempre de <b>link</b>.</span></div>' +
+      '<div class="scopenote"><span>🎯 Aba operacional: métricas de mídia (Meta) e resultado por anúncio. <b>Novos contatos</b> = novos contatos por mensagem (1ª resposta no WhatsApp, campanha E2-CAP·ENGJ); <b>Programar</b> = conversão da LP (Schedule); <b>Formulário</b> = leads de form. CTR sempre de <b>link</b>.</span></div>' +
       '<div class="kpis">' + kpis.join('') + '</div>' +
       '<div class="panel"><h2>Investimento por objetivo <span style="font-weight:500;color:var(--ink-3)">— com imposto ×' + taxStr(TAX) + '</span></h2><div class="funil-grid" id="funilInv"></div></div>' +
       '<div class="panel"><h2>Otimização — Campanha › Conjunto › Anúncio</h2>' +
@@ -781,23 +782,23 @@
     var perLabel = days === 1 ? brFull(from) : brFull(from) + ' a ' + brFull(to) + ' · ' + days + ' dias';
 
     function selo(k, v) { var st = statusOf(v, BANDS[k]); return st ? '<span class="rep-flag ' + st.cls + '">' + st.word + '</span>' : ''; }
-    var dTbl = '<div class="tblwrap"><table style="min-width:520px"><thead><tr><th style="text-align:left">Dia</th><th>Gasto</th><th>Cliques</th><th>Conversas</th><th>Custo/conversa</th><th>Prog.</th><th>Leads</th></tr></thead><tbody>' +
-      dRows.slice().reverse().map(function (r) { return '<tr><td style="text-align:left">' + brFull(r.d) + '</td><td>' + M.money(r.spend) + '</td><td>' + int(r.clk) + '</td><td>' + int(r.conv) + '</td><td>' + M.money(r.cpConv) + '</td><td>' + int(r.sched) + '</td><td>' + int(r.lead) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    var dTbl = '<div class="tblwrap"><table style="min-width:520px"><thead><tr><th style="text-align:left">Dia</th><th>Gasto</th><th>Cliques</th><th>Novos contatos</th><th>Custo/contato</th><th>Prog.</th><th>Form.</th></tr></thead><tbody>' +
+      dRows.slice().reverse().map(function (r) { return '<tr><td style="text-align:left">' + brFull(r.d) + '</td><td>' + M.money(r.spend) + '</td><td>' + int(r.clk) + '</td><td>' + int(r.reply) + '</td><td>' + M.money(r.cpReply) + '</td><td>' + int(r.sched) + '</td><td>' + int(r.lead) + '</td></tr>'; }).join('') + '</tbody></table></div>';
 
     var finSec = HAS_FIN ? (
       '<div class="rep-sec"><div class="step">2 · FATURAMENTO</div><h3>💰 Faturamento no período (secretárias)</h3><div class="rep-stats">' +
-      repStat('Faturamento total', money0(fin.fatTot)) + repStat('Consultas', money0(fin.fatCon)) +
-      repStat('Cirurgias', money0(fin.fatCir)) + repStat('Agendamentos', int(fin.agend)) +
-      repStat('Cirurgias confirmadas', int(fin.cirurg)) + repStat('ROAS geral', M.roas(div(fin.fatTot, cur.spend))) + '</div>' +
-      '<p class="rep-p muted">⚠️ Inclui Unimed / indicação / particular — não é só tráfego. ROAS geral é referência da operação inteira; o ROAS do tráfego virá do cruzamento por telefone (Fase 3).</p></div>'
+      repStat('Valor total', money0(fin.fatTot)) + repStat('Valor consultas', money0(fin.fatCon)) +
+      repStat('Valor cirurgias', money0(fin.fatCir)) + repStat('Agendamentos', int(fin.agend)) +
+      repStat('Cirurgias confirmadas', int(fin.cirurg)) + '</div>' +
+      '<p class="rep-p muted">⚠️ Números da planilha das secretárias (inclui Unimed / indicação / particular). Ainda não dá pra separar o que veio de campanha, então mostramos só a quantidade e os valores.</p></div>'
     ) : '';
 
     var secVisual =
       '<div class="rep-sec"><div class="step">1 · RESUMO</div><h3>📊 Números do período</h3><div class="rep-stats">' +
-      repStat('Investimento', M.money(cur.spend)) + repStat('Conversas', int(cur.conv)) +
-      repStat('Custo por conversa', M.money(cur.cpConv)) + repStat('Responderam', int(cur.reply)) +
-      repStat('Programar (LP)', int(cur.sched)) + repStat('Leads', int(cur.lead)) + '</div>' +
-      '<p class="rep-p muted">Resultado principal = <b>conversas por WhatsApp</b>. Programar (conversão da LP) e Leads entram como secundários.</p></div>' +
+      repStat('Investimento', M.money(cur.spend)) + repStat('Novos contatos', int(cur.reply)) +
+      repStat('Custo por contato', M.money(cur.cpReply)) + repStat('Conversas inic.', int(cur.conv)) +
+      repStat('Programar (LP)', int(cur.sched)) + repStat('Formulário', int(cur.lead)) + '</div>' +
+      '<p class="rep-p muted">Resultado principal = <b>novos contatos por mensagem</b> (1ª resposta no WhatsApp, campanha E2-CAP·ENGJ). Programar (conversão da LP) e Formulário entram como secundários.</p></div>' +
 
       finSec +
 
@@ -809,19 +810,19 @@
       '<div class="rep-sec"><div class="step">4 · DIA A DIA</div><h3>📅 Funil por dia</h3>' + dTbl + '</div>' +
 
       '<div class="rep-sec"><div class="step">5 · CAMPANHAS</div><h3>🗂️ Investimento e resultados</h3>' +
-      '<div class="tblwrap"><table style="min-width:520px"><thead><tr><th style="text-align:left">Campanha</th><th>Gasto</th><th>CTR</th><th>CPC</th><th>Conversas</th><th>Custo/conv</th><th>Prog.</th></tr></thead><tbody>' +
-      camps.filter(function (c) { return c.spend > 0; }).sort(function (a, b) { return b.spend - a.spend; }).map(function (c) { return '<tr><td style="text-align:left">' + esc(c.label) + '</td><td>' + M.money(c.spend) + '</td><td>' + M.pct1(c.ctr) + '</td><td>' + M.money(c.cpc) + '</td><td>' + int(c.conv) + '</td><td>' + M.money(c.cpConv) + '</td><td>' + int(c.sched) + '</td></tr>'; }).join('') + '</tbody></table></div></div>' +
+      '<div class="tblwrap"><table style="min-width:520px"><thead><tr><th style="text-align:left">Campanha</th><th>Gasto</th><th>CTR</th><th>CPC</th><th>Novos contatos</th><th>Custo/contato</th><th>Prog.</th></tr></thead><tbody>' +
+      camps.filter(function (c) { return c.spend > 0; }).sort(function (a, b) { return b.spend - a.spend; }).map(function (c) { return '<tr><td style="text-align:left">' + esc(c.label) + '</td><td>' + M.money(c.spend) + '</td><td>' + M.pct1(c.ctr) + '</td><td>' + M.money(c.cpc) + '</td><td>' + int(c.reply) + '</td><td>' + M.money(c.cpReply) + '</td><td>' + int(c.sched) + '</td></tr>'; }).join('') + '</tbody></table></div></div>' +
 
       '<div class="rep-sec"><div class="step">6 · MELHORES ANÚNCIOS</div><h3>🏆 Destaques pra produzir mais</h3>' +
       (function () {
-        var b = ads.filter(function (a) { return a.conv > 0; }).sort(function (a, z) { return (a.cpConv || 1e9) - (z.cpConv || 1e9); }).slice(0, 6);
-        return b.length ? b.map(function (a) { var res = int(a.conv) + ' conversa(s) · custo/conversa ' + M.money(a.cpConv); return '<div class="rep-ad"><div><span class="nm">' + esc(a.label) + '</span> <span class="mt">· ' + res + ' · ' + M.money(a.spend) + ' gastos</span></div><input data-adlink="' + encodeURIComponent(a.label) + '" placeholder="cole o link do anúncio (Instagram)"></div>'; }).join('')
-          : '<p class="rep-p muted">Sem conversa atribuída a um anúncio específico no período.</p>';
+        var b = ads.filter(function (a) { return a.reply > 0; }).sort(function (a, z) { return (a.cpReply || 1e9) - (z.cpReply || 1e9); }).slice(0, 6);
+        return b.length ? b.map(function (a) { var res = int(a.reply) + ' novo(s) contato(s) · custo/contato ' + M.money(a.cpReply); return '<div class="rep-ad"><div><span class="nm">' + esc(a.label) + '</span> <span class="mt">· ' + res + ' · ' + M.money(a.spend) + ' gastos</span></div><input data-adlink="' + encodeURIComponent(a.label) + '" placeholder="cole o link do anúncio (Instagram)"></div>'; }).join('')
+          : '<p class="rep-p muted">Sem novo contato atribuído a um anúncio específico no período.</p>';
       })() + '</div>';
 
     /* ---- briefing do gestor (interno) ---- */
     var brief = [];
-    var xGeral = 'Investimento ' + M.money(cur.spend) + ' gerou ' + int(cur.conv) + ' conversa(s) (custo/conversa ' + M.money(cur.cpConv) + '), ' + int(cur.sched) + ' programar (LP) e ' + int(cur.lead) + ' lead(s). ' + (HAS_FIN ? 'Faturamento no período (operação inteira, inclui Unimed/indicação): ' + money0(fin.fatTot) + '.' : '');
+    var xGeral = 'Investimento ' + M.money(cur.spend) + ' gerou ' + int(cur.reply) + ' novo(s) contato(s) por mensagem (custo/contato ' + M.money(cur.cpReply) + '), ' + int(cur.sched) + ' programar (LP) e ' + int(cur.lead) + ' form. ' + (HAS_FIN ? 'Valores no período (operação inteira, inclui Unimed/indicação): ' + money0(fin.fatTot) + '.' : '');
     brief.push({ t: 'Leitura geral', h: '<p>' + xGeral + '</p>', x: xGeral });
 
     var topStatus = [['ctr', cur.ctr], ['cpc', cur.cpc], ['cpm', cur.cpm]].map(function (p) { var st = statusOf(p[1], BANDS[p[0]]); return BANDS[p[0]].label + ' ' + BANDS[p[0]].fmt(p[1]) + ' (' + (st ? st.word : '—') + ')'; }).join(' · ');
@@ -829,22 +830,22 @@
     var xTopo = 'Mídia: ' + topStatus + '. ' + (allTopGood ? 'A mídia está barata e atraente — o gargalo, se houver, está na conversão da conversa em agendamento, não no clique.' : 'Há espaço pra melhorar a mídia (criativo/público) antes de escalar.');
     brief.push({ t: 'Mídia (topo)', h: '<p>' + xTopo + '</p>', x: xTopo });
 
-    var ds = dRows.filter(function (r) { return r.conv > 0; });
+    var ds = dRows.filter(function (r) { return r.reply > 0; });
     var xDia;
     if (ds.length) {
-      var best = ds.reduce(function (a, b) { return (b.cpConv || 1e9) < (a.cpConv || 1e9) ? b : a; });
-      var worst = ds.reduce(function (a, b) { return (b.cpConv || 0) > (a.cpConv || 0) ? b : a; });
-      xDia = ds.length + ' dia(s) com conversa. Melhor: ' + brFull(best.d) + ' (custo/conversa ' + M.money(best.cpConv) + ', ' + int(best.conv) + ' conversas)' + (worst !== best ? ' · pior: ' + brFull(worst.d) + ' (custo/conversa ' + M.money(worst.cpConv) + ')' : '') + '.';
-    } else xDia = 'Sem conversa dia a dia no período.';
+      var best = ds.reduce(function (a, b) { return (b.cpReply || 1e9) < (a.cpReply || 1e9) ? b : a; });
+      var worst = ds.reduce(function (a, b) { return (b.cpReply || 0) > (a.cpReply || 0) ? b : a; });
+      xDia = ds.length + ' dia(s) com contato. Melhor: ' + brFull(best.d) + ' (custo/contato ' + M.money(best.cpReply) + ', ' + int(best.reply) + ' contatos)' + (worst !== best ? ' · pior: ' + brFull(worst.d) + ' (custo/contato ' + M.money(worst.cpReply) + ')' : '') + '.';
+    } else xDia = 'Sem novo contato dia a dia no período.';
     brief.push({ t: 'Dia a dia', h: '<p>' + xDia + '</p>', x: xDia });
 
-    var winners = ads.filter(function (a) { return a.conv > 0 && ok(a.cpConv); }).sort(function (a, b) { return a.cpConv - b.cpConv; }).slice(0, 4);
-    var burning = ads.filter(function (a) { return a.spend >= (cur.cpConv || 20) * 3 && a.conv === 0 && a.lead === 0 && a.sched === 0; }).sort(function (a, b) { return b.spend - a.spend; }).slice(0, 4);
+    var winners = ads.filter(function (a) { return a.reply > 0 && ok(a.cpReply); }).sort(function (a, b) { return a.cpReply - b.cpReply; }).slice(0, 4);
+    var burning = ads.filter(function (a) { return a.spend >= (cur.cpReply || 20) * 3 && a.reply === 0 && a.lead === 0 && a.sched === 0; }).sort(function (a, b) { return b.spend - a.spend; }).slice(0, 4);
     var campHtml = '';
-    if (winners.length) campHtml += '<p><span class="rep-flag g">CAMPEÕES</span> menor custo/conversa:</p><ul>' + winners.map(function (a) { return '<li><b>' + esc(a.label) + '</b> — ' + int(a.conv) + ' conversa(s), custo/conversa ' + M.money(a.cpConv) + ', ' + M.money(a.spend) + ' gastos.</li>'; }).join('') + '</ul>';
-    if (burning.length) campHtml += '<p style="margin-top:10px"><span class="rep-flag r">QUEIMANDO VERBA</span> gasto relevante sem resultado:</p><ul>' + burning.map(function (a) { return '<li><b>' + esc(a.label) + '</b> — ' + M.money(a.spend) + ' gastos, 0 conversa/lead — candidato a pausar/revisar criativo.</li>'; }).join('') + '</ul>';
+    if (winners.length) campHtml += '<p><span class="rep-flag g">CAMPEÕES</span> menor custo/contato:</p><ul>' + winners.map(function (a) { return '<li><b>' + esc(a.label) + '</b> — ' + int(a.reply) + ' novo(s) contato(s), custo/contato ' + M.money(a.cpReply) + ', ' + M.money(a.spend) + ' gastos.</li>'; }).join('') + '</ul>';
+    if (burning.length) campHtml += '<p style="margin-top:10px"><span class="rep-flag r">QUEIMANDO VERBA</span> gasto relevante sem resultado:</p><ul>' + burning.map(function (a) { return '<li><b>' + esc(a.label) + '</b> — ' + M.money(a.spend) + ' gastos, 0 contato/form — candidato a pausar/revisar criativo.</li>'; }).join('') + '</ul>';
     if (!campHtml) campHtml = '<p class="rep-p muted">Ainda sem volume por anúncio pra separar campeões de perdedores com segurança.</p>';
-    var campX = 'Campeões (custo/conversa): ' + (winners.map(function (a) { return a.label + ' (' + M.money(a.cpConv) + ')'; }).join('; ') || '—') + '.\nQueimando verba: ' + (burning.map(function (a) { return a.label + ' (' + M.money(a.spend) + ', 0 resultado)'; }).join('; ') || '—') + '.';
+    var campX = 'Campeões (custo/contato): ' + (winners.map(function (a) { return a.label + ' (' + M.money(a.cpReply) + ')'; }).join('; ') || '—') + '.\nQueimando verba: ' + (burning.map(function (a) { return a.label + ' (' + M.money(a.spend) + ', 0 resultado)'; }).join('; ') || '—') + '.';
     brief.push({ t: 'Campanhas / anúncios', h: campHtml, x: campX });
 
     // insights e gargalos
@@ -853,9 +854,9 @@
     if (topGoods.length >= 2) ins.push(['✅', '<b>Mídia forte:</b> ' + topGoods.map(function (k) { return BANDS[k].label; }).join(', ') + ' dentro da faixa boa. A entrega está barata — o ganho está em converter a conversa em agendamento.']);
     var lpSpendR = 0; for (var li = 0; li < grain.length; li++) { var lg = grain[li]; if (!within(lg.d, from, to)) continue; if (!campOK(lg.camp)) continue; if (funnelOf(lg.camp) === 'Leads/LP') lpSpendR += lg.spend; }
     if (cur.sched === 0 && lpSpendR > 0) ins.push(['⚠️', '<b>LP não converte:</b> ' + M.money(lpSpendR) + ' em campanhas de LP/Leads e 0 evento "Programar". Checar pixel/evento na landing (Gerenciador de Eventos → Testar eventos) e a otimização da campanha.']);
-    if (cur.conv > 0 && ok(cur.replyRate) && cur.replyRate < 0.4) ins.push(['🔎', '<b>Baixa taxa de resposta:</b> só ' + M.pct1(cur.replyRate) + ' das conversas responderam. Agilizar o 1º atendimento (velocidade + script).']);
+    if (cur.conv > 0 && ok(cur.replyRate) && cur.replyRate < 0.4) ins.push(['🔎', '<b>Baixa taxa de resposta:</b> só ' + M.pct1(cur.replyRate) + ' das conversas viraram novo contato. Agilizar o 1º atendimento (velocidade + script).']);
     burning.slice(0, 2).forEach(function (a) { ins.push(['🔥', '<b>Queimando verba:</b> "' + esc(a.label) + '" gastou ' + M.money(a.spend) + ' sem resultado — candidato a pausar.']); });
-    winners.slice(0, 2).forEach(function (a) { ins.push(['⭐', '<b>Destaque:</b> "' + esc(a.label) + '" custo/conversa ' + M.money(a.cpConv) + ' com ' + int(a.conv) + ' conversa(s) — colocar mais verba e criar variações.']); });
+    winners.slice(0, 2).forEach(function (a) { ins.push(['⭐', '<b>Destaque:</b> "' + esc(a.label) + '" custo/contato ' + M.money(a.cpReply) + ' com ' + int(a.reply) + ' novo(s) contato(s) — colocar mais verba e criar variações.']); });
     ins.push(['🧭', allTopGood ? '<b>Resumo:</b> mídia saudável — foco em volume de conversa qualificada e no atendimento rápido.' : '<b>Resumo:</b> ajustar mídia (criativo/público) antes de escalar verba.']);
     var insHtml = '<div>' + ins.map(function (i) { return '<div class="insight"><span class="ico">' + i[0] + '</span><span class="tx">' + i[1] + '</span></div>'; }).join('') + '</div>';
     brief.push({ t: 'Insights e gargalos', h: insHtml, x: ins.map(function (i) { return '• ' + i[1].replace(/<[^>]+>/g, ''); }).join('\n') });
@@ -864,10 +865,10 @@
     var sug = [];
     if (cur.sched === 0 && lpSpendR > 0) sug.push('Destravar o evento "Programar" na LP: testar pixel/evento no Gerenciador de Eventos e recriar a campanha da LP otimizando por Schedule.');
     if (ok(cur.replyRate) && cur.replyRate < 0.4 && cur.conv > 0) sug.push('Melhorar taxa de resposta das conversas: atendimento mais rápido e script de abertura.');
-    if (winners.length) sug.push('Escalar os campeões de custo/conversa: ' + winners.slice(0, 3).map(function (a) { return esc(a.label); }).join(', ') + '.');
+    if (winners.length) sug.push('Escalar os campeões de custo/contato: ' + winners.slice(0, 3).map(function (a) { return esc(a.label); }).join(', ') + '.');
     burning.slice(0, 2).forEach(function (a) { sug.push('Pausar/revisar "' + esc(a.label) + '" (' + M.money(a.spend) + ' sem resultado).'); });
     sug.push('Fase 3: pedir às secretárias pra preencher o telefone dos pacientes → cruzar com os leads pra medir o ROAS só do tráfego.');
-    if (!sug.length) sug.push('Manter monitoramento diário do custo por conversa e do volume.');
+    if (!sug.length) sug.push('Manter monitoramento diário do custo por contato e do volume.');
     brief.push({ t: 'Próximos passos (sugestões)', h: '<ul>' + sug.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ul>', x: sug.map(function (s) { return '• ' + s.replace(/<[^>]+>/g, ''); }).join('\n') });
 
     var briefText = 'BRIEFING DO GESTOR — Dr. Vinicius\n' + perLabel + '\n\n' + brief.map(function (s) { return s.t.toUpperCase() + '\n' + s.x; }).join('\n\n') + '\n\n— gerado pela dashboard (' + (D.generatedAt || '') + ' ' + (D.tz || 'BRT') + ')';
@@ -958,7 +959,7 @@
 
   function shell() {
     var m = D;
-    $('subtitle').innerHTML = '<b>Funil de captação</b> · conversas (WhatsApp) + LP · dados de ' + brFull(minDate) + ' a ' + brFull(maxDate) + ' · ' + int(daily.length) + ' dias com registro';
+    $('subtitle').innerHTML = '<b>Funil de captação</b> · novos contatos por mensagem (WhatsApp) + LP · dados de ' + brFull(minDate) + ' a ' + brFull(maxDate) + ' · ' + int(daily.length) + ' dias com registro';
     $('updated').textContent = 'atualizado ' + esc(m.generatedAt || '—') + ' ' + esc(m.tz || 'BRT');
     $('taxBadge').textContent = TAX === 1 ? 'sem imposto' : 'imposto ×' + taxStr(TAX);
     $('from').min = $('to').min = minDate; $('from').max = $('to').max = maxDate;
