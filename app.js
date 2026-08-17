@@ -539,19 +539,19 @@
       '<div class="hcard"><div class="hk">💸 Investimento <small>c/ imposto</small></div>' +
       '<div class="hv">' + M.money(cur.spend) + '</div><div class="hd">' + miniDelta(cur.spend, prev && prev.spend, null) + ' vs anterior</div></div>' +
       '<div class="op">→</div>' +
-      '<div class="hcard"><div class="hk">💬 Novos contatos <small>por mensagem · E2-CAP·ENGJ</small></div>' +
+      '<div class="hcard"><div class="hk">💬 Leads <small>por mensagem · E2-CAP·ENGJ</small></div>' +
       '<div class="hv g">' + M.int(msg.contatos) + '</div><div class="hd">' + miniDelta(msg.contatos, pmsg && pmsg.contatos, true) + ' vs anterior</div></div>' +
       '<div class="op">=</div>' +
-      '<div class="hcard roas"><div class="hk">🎯 Custo por novo contato <small>c/ imposto</small></div>' +
+      '<div class="hcard roas"><div class="hk">🎯 Custo por Lead <small>c/ imposto</small></div>' +
       '<div class="hv">' + M.money(msg.cpContato) + '</div><div class="hd">' + miniDelta(msg.cpContato, pmsg && pmsg.cpContato, false) + ' vs anterior</div></div>' +
       '<div class="op">·</div>' +
-      '<div class="hcard"><div class="hk">📅 Programar <small>LP</small> · 🧲 Leads</div>' +
+      '<div class="hcard"><div class="hk">📅 Programar <small>LP</small> · 🧲 Formulário</div>' +
       '<div class="hv">' + M.int(cur.sched) + ' · ' + M.int(cur.lead) + '</div><div class="hd">' + (cur.sched === 0 ? 'LP sem conversão' : 'custo/prog ' + M.money(cur.cpSched)) + '</div></div>';
 
     var heroLine = (msg.contatos > 0 || cur.lead > 0 || cur.sched > 0)
-      ? '<b>' + int(msg.contatos) + ' novos contatos por mensagem</b> (campanha E2-CAP · ENGJ) por <b>' + M.money(msg.spend) + '</b> investidos — custo médio por contato <b>' + M.money(msg.cpContato) + '</b>' +
-        '. Programar (LP): <b>' + int(cur.sched) + '</b> · Leads: <b>' + int(cur.lead) + '</b>.'
-      : 'Sem novo contato por mensagem, programar ou lead no período.';
+      ? '<b>' + int(msg.contatos) + ' Leads</b> (mensagem · campanha E2-CAP · ENGJ) por <b>' + M.money(msg.spend) + '</b> investidos — custo médio por Lead <b>' + M.money(msg.cpContato) + '</b>' +
+        '. Programar (LP): <b>' + int(cur.sched) + '</b> · Formulário: <b>' + int(cur.lead) + '</b>.'
+      : 'Sem Lead, programar ou formulário no período.';
 
     // painel de leads do quiz (planilha ao vivo) + banner por grupo de campanha
     var quizMedia = aggregateGroup('quiz', from, to);
@@ -590,7 +590,7 @@
       finHTML +
       '<div class="panel"><h2>Investimento por objetivo <span style="font-weight:500;color:var(--ink-3)">— com imposto ×' + taxStr(TAX) + '</span></h2><div class="funil-grid" id="funilInv"></div></div>' +
       '<div class="grid-funnel">' +
-      '<div class="panel"><h2>Funil completo</h2><p class="note">Investimento → Impressões → Cliques → Conversas. Cada etapa mostra o <b>volume</b> e, à direita, o <b>custo</b> e a <b>taxa de passagem</b>.</p><div class="funnel" id="funnel"></div></div>' +
+      '<div class="panel"><h2>Funil completo</h2><p class="note">Investimento → Impressões → Cliques → Leads. Cada etapa mostra o <b>volume</b> e, à direita, o <b>custo</b> e a <b>taxa de passagem</b>.</p><div class="funnel" id="funnel"></div></div>' +
       '<div class="panel"><h2>Resultados por dia</h2><p class="note">Barras = <b>Investimento c/ imposto</b> (esq., R$) · linha = <b>Conversas</b> (dir., nº).</p><div class="legend" id="legA"></div><div id="chA"></div>' +
       '<h2 style="margin-top:20px">Conversas × Responderam × Custo/conversa</h2><p class="note">Barras = <b>Conversas</b> e <b>Responderam</b> (esq., nº) · linha = <b>Custo por conversa</b> (dir., R$).</p><div class="legend" id="legB"></div><div id="chB"></div></div>' +
       '</div>' +
@@ -650,8 +650,8 @@
     var stages = [
       { n: 'Investimento', big: M.money(c.spend), bg: '#8fe01e', ink: '#0c1400', cl: 'Gasto bruto', cv: M.money(c.spend / TAX), sub: '+ imposto ×' + taxStr(TAX) + ' = <b>' + M.money(c.spend) + '</b>' },
       { n: 'Impressões', big: M.int(c.impr), bg: '#7ecb1c', ink: '#0c1400', cl: 'CPM', cv: M.money(c.cpm), sub: 'CTR (link) <b>' + M.pct1(c.ctr) + '</b>' },
-      { n: 'Cliques (link)', big: M.int(c.clk), bg: '#5aa60f', ink: '#fff', cl: 'CPC', cv: M.money(c.cpc), sub: 'Clique → Conversa <b>' + M.pct1(c.convRate) + '</b>' },
-      { n: 'Conversas', big: M.int(c.conv), bg: '#356606', ink: '#fff', cl: 'Custo / Conversa', cv: M.money(c.cpConv), sub: (c.sched > 0 || c.lead > 0) ? '+ <b>' + M.int(c.sched) + '</b> programar · <b>' + M.int(c.lead) + '</b> leads' : 'resultado principal (WhatsApp)' }
+      { n: 'Cliques (link)', big: M.int(c.clk), bg: '#5aa60f', ink: '#fff', cl: 'CPC', cv: M.money(c.cpc), sub: 'Clique → Lead <b>' + M.pct1(div(c.reply, c.clk)) + '</b>' },
+      { n: 'Leads', big: M.int(c.reply), bg: '#356606', ink: '#fff', cl: 'Custo / Lead', cv: M.money(div(c.spend, c.reply)), sub: c.sched > 0 ? '+ <b>' + M.int(c.sched) + '</b> programar' : 'novos contatos por mensagem (WhatsApp)' }
     ];
     $('funnel').innerHTML = stages.map(function (s) {
       return '<div class="fstage"><div class="fl" style="background:' + s.bg + ';color:' + s.ink + '"><div class="fn">' + s.n + '</div><div class="fv">' + s.big + '</div></div>' +
@@ -969,7 +969,7 @@
     $('footer').innerHTML =
       'Gasto total do período completo: ' + money(totalSpend) + ' (já com imposto ×' + taxStr(TAX) + '). ' +
       'Fonte: <b>Meta Graph API</b> (insights nível anúncio) · conta <code>' + esc(m.account || '') + '</code> + planilha das secretárias (faturamento). ' +
-      '<b>Novos contatos por mensagem</b> = 1ª resposta no WhatsApp da campanha E2-CAP·ENGJ (' + int(totContatos) + ' no total) · <b>Programar</b> = conversão da LP (' + int(totSched) + '). ' +
+      '<b>Leads</b> = novos contatos por mensagem (1ª resposta no WhatsApp da campanha E2-CAP·ENGJ, ' + int(totContatos) + ' no total) · <b>Programar</b> = conversão da LP (' + int(totSched) + '). ' +
       'CTR sempre de <b>link</b>. Somente leitura.';
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (b) {
